@@ -27,3 +27,16 @@ It’s easier to scan visually and matches the behavior of most Unix `ls` implem
 ### Question 3: What is the role of `printf("%-*s")` in formatting?
 `%-*s` left-aligns the text and pads it with spaces up to the given width, ensuring that all filenames line up in neat columns.
 
+## Feature 4 – Horizontal Display (-x) and Argument Parsing
+
+### What was added
+This feature introduced command-line option parsing for `-l` (long listing) and `-x` (horizontal display).  
+- `getopt()` was used to handle both flags.  
+- If `-l` is given, detailed file information is printed.  
+- If `-x` is given, files are displayed across rows (across-then-down).  
+- If no flag is given, the program defaults to down-then-across column display.
+
+### Key Concepts
+- **Option parsing** lets us add flexible behavior without changing code logic.  
+- **Precedence rule:** `-l` overrides `-x`, just like in real `ls`.  
+- The horizontal display rearranges the loop order: index = row * cols + col.
