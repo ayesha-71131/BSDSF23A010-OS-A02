@@ -13,3 +13,17 @@ Example:
 ```c
 if (S_ISDIR(st.st_mode)) printf("This is a directory\n");
 if (st.st_mode & S_IRUSR) printf("User has read permission\n");
+
+## Feature 3 – Column Display (Down then Across)
+
+### Question 1: How does the program know how many columns to display?
+It uses the `ioctl()` system call with `TIOCGWINSZ` to read the current terminal width (number of columns).  
+The code then divides this width by the maximum filename length plus some spacing to calculate how many columns can fit.
+
+### Question 2: Why “down then across” instead of “across then down”?
+The real `ls` arranges items *down the first column*, then moves to the next column to keep items grouped logically.  
+It’s easier to scan visually and matches the behavior of most Unix `ls` implementations.
+
+### Question 3: What is the role of `printf("%-*s")` in formatting?
+`%-*s` left-aligns the text and pads it with spaces up to the given width, ensuring that all filenames line up in neat columns.
+
