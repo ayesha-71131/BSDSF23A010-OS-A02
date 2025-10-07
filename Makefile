@@ -1,7 +1,7 @@
-# Simple Makefile for ls-v1.0.0
+# Simple Makefile for ls-v1.1.0
 CC = gcc
 CFLAGS = -Wall
-SRC = src/ls-v1.0.0.c
+SRC = src/ls-v1.1.0.c
 BIN = bin/ls
 
 all: $(BIN)
@@ -12,3 +12,4 @@ $(BIN): $(SRC)
 
 clean:
 	rm -f $(BIN)
+
