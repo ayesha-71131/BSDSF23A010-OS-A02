@@ -1,7 +1,7 @@
 # Simple Makefile for ls-v1.4.0
 CC = gcc
 CFLAGS = -Wall
-SRC = src/ls-v1.5.0.c
+SRC = src/ls-v1.7.0.c
 BIN = bin/ls
 
 all: $(BIN)

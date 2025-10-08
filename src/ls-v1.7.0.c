@@ -1,7 +1,7 @@
 /*
- * ls-v1.5.0
- * Feature 6: Colorized output based on file type
- * Adds ANSI colors for directories, executables, archives, symlinks, and special files.
+ * ls-v1.6.0
+ * Feature 7 (Tasks 2 & 3): Recursive Listing (-R)
+ * Adds -R flag and recursive traversal through subdirectories.
  */
 
 #include <stdio.h>
@@ -34,23 +34,21 @@ void print_columns_across(const char *dir, char **names, int count, int maxlen);
 void print_long_listing(const char *dir, char **names, int count);
 int compare_names(const void *a, const void *b);
 void print_colored_name(const char *dir, const char *name);
+void do_ls(const char *dir, int long_flag, int x_flag, int recursive_flag);
 
-/* ---------- Display Wrappers ---------- */
-void do_default(const char *dir);
-void do_horizontal(const char *dir);
-void do_long(const char *dir);
-
+/* ---------- Main ---------- */
 int main(int argc, char *argv[])
 {
-    int opt, long_flag = 0, x_flag = 0;
+    int opt, long_flag = 0, x_flag = 0, recursive_flag = 0;
 
-    while ((opt = getopt(argc, argv, "lx")) != -1)
+    while ((opt = getopt(argc, argv, "lxR")) != -1)
     {
         if (opt == 'l') long_flag = 1;
         else if (opt == 'x') x_flag = 1;
+        else if (opt == 'R') recursive_flag = 1;
         else
         {
-            fprintf(stderr, "Usage: %s [-l] [-x] [directory...]\n", argv[0]);
+            fprintf(stderr, "Usage: %s [-l] [-x] [-R] [directory...]\n", argv[0]);
             return EXIT_FAILURE;
         }
     }
@@ -58,19 +56,12 @@ int main(int argc, char *argv[])
     if (long_flag) x_flag = 0;
 
     if (optind == argc)
-    {
-        if (long_flag) do_long(".");
-        else if (x_flag) do_horizontal(".");
-        else do_default(".");
-    }
+        do_ls(".", long_flag, x_flag, recursive_flag);
     else
     {
         for (int i = optind; i < argc; i++)
         {
-            printf("Directory listing of %s:\n", argv[i]);
-            if (long_flag) do_long(argv[i]);
-            else if (x_flag) do_horizontal(argv[i]);
-            else do_default(argv[i]);
+            do_ls(argv[i], long_flag, x_flag, recursive_flag);
             if (i < argc - 1) putchar('\n');
         }
     }
@@ -94,7 +85,7 @@ int read_names(const char *dir, char ***out_names, int *out_count, int *out_maxl
 
     while ((entry = readdir(dp)) != NULL)
     {
-        if (entry->d_name[0] == '.') continue;
+        if (entry->d_name[0] == '.') continue;  // skip hidden
         char *s = strdup(entry->d_name);
         if (!s) { perror("strdup"); closedir(dp); return -1; }
 
@@ -117,7 +108,6 @@ int read_names(const char *dir, char ***out_names, int *out_count, int *out_maxl
     return 0;
 }
 
-/* ---------- Comparison Function ---------- */
 int compare_names(const void *a, const void *b)
 {
     const char *na = *(const char **)a;
@@ -125,7 +115,6 @@ int compare_names(const void *a, const void *b)
     return strcasecmp(na, nb);
 }
 
-/* ---------- Free Helper ---------- */
 void free_names(char **names, int count)
 {
     if (!names) return;
@@ -133,7 +122,7 @@ void free_names(char **names, int count)
     free(names);
 }
 
-/* ---------- Color Printing Logic ---------- */
+/* ---------- Color Printing ---------- */
 void print_colored_name(const char *dir, const char *name)
 {
     char path[PATH_BUF];
@@ -141,7 +130,7 @@ void print_colored_name(const char *dir, const char *name)
     struct stat st;
     if (lstat(path, &st) == -1)
     {
-        printf("%s ", name);
+        printf("%s", name);
         return;
     }
 
@@ -156,7 +145,7 @@ void print_colored_name(const char *dir, const char *name)
     printf("%s%s%s", color, name, COLOR_RESET);
 }
 
-/* ---------- Column Display (Down Then Across) ---------- */
+/* ---------- Printing Helpers ---------- */
 void print_columns_down(const char *dir, char **names, int count, int maxlen)
 {
     struct winsize w;
@@ -184,7 +173,6 @@ void print_columns_down(const char *dir, char **names, int count, int maxlen)
     }
 }
 
-/* ---------- Horizontal Column Display (-x) ---------- */
 void print_columns_across(const char *dir, char **names, int count, int maxlen)
 {
     struct winsize w;
@@ -212,7 +200,6 @@ void print_columns_across(const char *dir, char **names, int count, int maxlen)
     }
 }
 
-/* ---------- Long Listing (same as before) ---------- */
 void print_long_listing(const char *dir, char **names, int count)
 {
     char path[PATH_BUF];
@@ -244,7 +231,6 @@ void print_long_listing(const char *dir, char **names, int count)
         struct tm *tm = localtime(&st.st_mtime);
         strftime(timebuf, sizeof(timebuf), "%b %d %H:%M", tm);
 
-        /* colorized filename in long listing */
         printf("%c%s %2ld %-8s %-8s %8ld %s ",
             type, perm, (long)st.st_nlink,
             pw?pw->pw_name:"?", gr?gr->gr_name:"?",
@@ -255,27 +241,41 @@ void print_long_listing(const char *dir, char **names, int count)
     }
 }
 
-/* ---------- Wrappers ---------- */
-void do_default(const char *dir)
+/* ---------- Core Recursive Logic ---------- */
+void do_ls(const char *dir, int long_flag, int x_flag, int recursive_flag)
 {
     char **names = NULL; int count = 0; int maxlen = 0;
     if (read_names(dir, &names, &count, &maxlen) != 0) return;
-    if (count > 0) print_columns_down(dir, names, count, maxlen);
-    free_names(names, count);
-}
 
-void do_horizontal(const char *dir)
-{
-    char **names = NULL; int count = 0; int maxlen = 0;
-    if (read_names(dir, &names, &count, &maxlen) != 0) return;
-    if (count > 0) print_columns_across(dir, names, count, maxlen);
-    free_names(names, count);
-}
+    printf("%s:\n", dir);
+    if (count == 0) { putchar('\n'); free_names(names, count); return; }
 
-void do_long(const char *dir)
-{
-    char **names = NULL; int count = 0; int maxlen = 0;
-    if (read_names(dir, &names, &count, &maxlen) != 0) return;
-    if (count > 0) print_long_listing(dir, names, count);
+    if (long_flag)
+        print_long_listing(dir, names, count);
+    else if (x_flag)
+        print_columns_across(dir, names, count, maxlen);
+    else
+        print_columns_down(dir, names, count, maxlen);
+
+    /* Recursive step for subdirectories */
+    if (recursive_flag)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            char path[PATH_BUF];
+            snprintf(path, sizeof(path), "%s/%s", dir, names[i]);
+            struct stat st;
+            if (lstat(path, &st) == -1) continue;
+
+            if (S_ISDIR(st.st_mode) &&
+                strcmp(names[i], ".") != 0 &&
+                strcmp(names[i], "..") != 0)
+            {
+                putchar('\n');
+                do_ls(path, long_flag, x_flag, recursive_flag);
+            }
+        }
+    }
+
     free_names(names, count);
 }
