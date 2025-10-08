@@ -1,7 +1,7 @@
 /*
- * ls-v1.4.0
- * Feature 5: Alphabetical sorting using qsort()
- * Sorts filenames A–Z in all display modes (-l, -x, default)
+ * ls-v1.5.0
+ * Feature 6: Colorized output based on file type
+ * Adds ANSI colors for directories, executables, archives, symlinks, and special files.
  */
 
 #include <stdio.h>
@@ -18,13 +18,24 @@
 
 #define PATH_BUF 1024
 
+/* ---------- ANSI Color Codes ---------- */
+#define COLOR_RESET   "\033[0m"
+#define COLOR_BLUE    "\033[0;34m"
+#define COLOR_GREEN   "\033[0;32m"
+#define COLOR_RED     "\033[0;31m"
+#define COLOR_MAGENTA "\033[0;35m"
+#define COLOR_REVERSE "\033[7m"
+
+/* ---------- Function Declarations ---------- */
 int read_names(const char *dir, char ***out_names, int *out_count, int *out_maxlen);
 void free_names(char **names, int count);
-void print_columns_down(char **names, int count, int maxlen);
-void print_columns_across(char **names, int count, int maxlen);
+void print_columns_down(const char *dir, char **names, int count, int maxlen);
+void print_columns_across(const char *dir, char **names, int count, int maxlen);
 void print_long_listing(const char *dir, char **names, int count);
 int compare_names(const void *a, const void *b);
+void print_colored_name(const char *dir, const char *name);
 
+/* ---------- Display Wrappers ---------- */
 void do_default(const char *dir);
 void do_horizontal(const char *dir);
 void do_long(const char *dir);
@@ -67,7 +78,7 @@ int main(int argc, char *argv[])
     return EXIT_SUCCESS;
 }
 
-/* ---------- read + sort names ---------- */
+/* ---------- Read + Sort Filenames ---------- */
 int read_names(const char *dir, char ***out_names, int *out_count, int *out_maxlen)
 {
     DIR *dp = opendir(dir);
@@ -79,19 +90,17 @@ int read_names(const char *dir, char ***out_names, int *out_count, int *out_maxl
 
     struct dirent *entry;
     char **names = NULL;
-    int count = 0;
-    int maxlen = 0;
+    int count = 0, maxlen = 0;
 
-    errno = 0;
     while ((entry = readdir(dp)) != NULL)
     {
         if (entry->d_name[0] == '.') continue;
-
         char *s = strdup(entry->d_name);
         if (!s) { perror("strdup"); closedir(dp); return -1; }
 
-        names = realloc(names, sizeof(char*) * (count + 1));
-        if (!names) { perror("realloc"); closedir(dp); return -1; }
+        char **tmp = realloc(names, sizeof(char*) * (count + 1));
+        if (!tmp) { perror("realloc"); closedir(dp); return -1; }
+        names = tmp;
 
         names[count++] = s;
         int len = strlen(s);
@@ -100,7 +109,7 @@ int read_names(const char *dir, char ***out_names, int *out_count, int *out_maxl
     closedir(dp);
 
     if (count > 0)
-        qsort(names, count, sizeof(char *), compare_names); // 🔹 Sort alphabetically
+        qsort(names, count, sizeof(char *), compare_names);
 
     *out_names = names;
     *out_count = count;
@@ -108,15 +117,15 @@ int read_names(const char *dir, char ***out_names, int *out_count, int *out_maxl
     return 0;
 }
 
-/* comparison function for qsort */
+/* ---------- Comparison Function ---------- */
 int compare_names(const void *a, const void *b)
 {
     const char *na = *(const char **)a;
     const char *nb = *(const char **)b;
-    return strcasecmp(na, nb); // case-insensitive A–Z
+    return strcasecmp(na, nb);
 }
 
-/* free helper */
+/* ---------- Free Helper ---------- */
 void free_names(char **names, int count)
 {
     if (!names) return;
@@ -124,35 +133,34 @@ void free_names(char **names, int count)
     free(names);
 }
 
-/* display modes */
-void do_default(const char *dir)
+/* ---------- Color Printing Logic ---------- */
+void print_colored_name(const char *dir, const char *name)
 {
-    char **names = NULL; int count = 0; int maxlen = 0;
-    if (read_names(dir, &names, &count, &maxlen) != 0) return;
-    if (count > 0) print_columns_down(names, count, maxlen);
-    free_names(names, count);
+    char path[PATH_BUF];
+    snprintf(path, sizeof(path), "%s/%s", dir, name);
+    struct stat st;
+    if (lstat(path, &st) == -1)
+    {
+        printf("%s ", name);
+        return;
+    }
+
+    const char *color = COLOR_RESET;
+
+    if (S_ISDIR(st.st_mode)) color = COLOR_BLUE;
+    else if (S_ISLNK(st.st_mode)) color = COLOR_MAGENTA;
+    else if (S_ISCHR(st.st_mode) || S_ISBLK(st.st_mode) || S_ISSOCK(st.st_mode)) color = COLOR_REVERSE;
+    else if (st.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)) color = COLOR_GREEN;
+    else if (strstr(name, ".tar") || strstr(name, ".gz") || strstr(name, ".zip")) color = COLOR_RED;
+
+    printf("%s%s%s", color, name, COLOR_RESET);
 }
 
-void do_horizontal(const char *dir)
+/* ---------- Column Display (Down Then Across) ---------- */
+void print_columns_down(const char *dir, char **names, int count, int maxlen)
 {
-    char **names = NULL; int count = 0; int maxlen = 0;
-    if (read_names(dir, &names, &count, &maxlen) != 0) return;
-    if (count > 0) print_columns_across(names, count, maxlen);
-    free_names(names, count);
-}
-
-void do_long(const char *dir)
-{
-    char **names = NULL; int count = 0; int maxlen = 0;
-    if (read_names(dir, &names, &count, &maxlen) != 0) return;
-    if (count > 0) print_long_listing(dir, names, count);
-    free_names(names, count);
-}
-
-/* column printing helpers (reuse from Feature 4) */
-void print_columns_down(char **names, int count, int maxlen)
-{
-    struct winsize w; ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
+    struct winsize w;
+    ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
     int termw = w.ws_col ? w.ws_col : 80;
     int spacing = 2;
     int colw = maxlen + spacing;
@@ -160,18 +168,27 @@ void print_columns_down(char **names, int count, int maxlen)
     if (cols < 1) cols = 1;
     int rows = (count + cols - 1) / cols;
 
-    for (int r = 0; r < rows; r++) {
-        for (int c = 0; c < cols; c++) {
+    for (int r = 0; r < rows; r++)
+    {
+        for (int c = 0; c < cols; c++)
+        {
             int idx = c * rows + r;
-            if (idx < count) printf("%-*s", colw, names[idx]);
+            if (idx < count)
+            {
+                print_colored_name(dir, names[idx]);
+                int pad = colw - (int)strlen(names[idx]);
+                for (int s = 0; s < pad; s++) putchar(' ');
+            }
         }
         putchar('\n');
     }
 }
 
-void print_columns_across(char **names, int count, int maxlen)
+/* ---------- Horizontal Column Display (-x) ---------- */
+void print_columns_across(const char *dir, char **names, int count, int maxlen)
 {
-    struct winsize w; ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
+    struct winsize w;
+    ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
     int termw = w.ws_col ? w.ws_col : 80;
     int spacing = 2;
     int colw = maxlen + spacing;
@@ -179,23 +196,31 @@ void print_columns_across(char **names, int count, int maxlen)
     if (cols < 1) cols = 1;
     int rows = (count + cols - 1) / cols;
 
-    for (int r = 0; r < rows; r++) {
-        for (int c = 0; c < cols; c++) {
+    for (int r = 0; r < rows; r++)
+    {
+        for (int c = 0; c < cols; c++)
+        {
             int idx = r * cols + c;
-            if (idx < count) printf("%-*s", colw, names[idx]);
+            if (idx < count)
+            {
+                print_colored_name(dir, names[idx]);
+                int pad = colw - (int)strlen(names[idx]);
+                for (int s = 0; s < pad; s++) putchar(' ');
+            }
         }
         putchar('\n');
     }
 }
 
-/* long listing reused from v1.3.0 (unchanged) */
+/* ---------- Long Listing (same as before) ---------- */
 void print_long_listing(const char *dir, char **names, int count)
 {
     char path[PATH_BUF];
-    for (int i = 0; i < count; i++) {
+    for (int i = 0; i < count; i++)
+    {
         snprintf(path, sizeof(path), "%s/%s", dir, names[i]);
         struct stat st;
-        if (stat(path, &st) == -1) continue;
+        if (lstat(path, &st) == -1) continue;
 
         char type = S_ISDIR(st.st_mode) ? 'd' : '-';
         if (S_ISLNK(st.st_mode)) type = 'l';
@@ -219,9 +244,38 @@ void print_long_listing(const char *dir, char **names, int count)
         struct tm *tm = localtime(&st.st_mtime);
         strftime(timebuf, sizeof(timebuf), "%b %d %H:%M", tm);
 
-        printf("%c%s %2ld %-8s %-8s %8ld %s %s\n",
+        /* colorized filename in long listing */
+        printf("%c%s %2ld %-8s %-8s %8ld %s ",
             type, perm, (long)st.st_nlink,
             pw?pw->pw_name:"?", gr?gr->gr_name:"?",
-            (long)st.st_size, timebuf, names[i]);
+            (long)st.st_size, timebuf);
+
+        print_colored_name(dir, names[i]);
+        putchar('\n');
     }
+}
+
+/* ---------- Wrappers ---------- */
+void do_default(const char *dir)
+{
+    char **names = NULL; int count = 0; int maxlen = 0;
+    if (read_names(dir, &names, &count, &maxlen) != 0) return;
+    if (count > 0) print_columns_down(dir, names, count, maxlen);
+    free_names(names, count);
+}
+
+void do_horizontal(const char *dir)
+{
+    char **names = NULL; int count = 0; int maxlen = 0;
+    if (read_names(dir, &names, &count, &maxlen) != 0) return;
+    if (count > 0) print_columns_across(dir, names, count, maxlen);
+    free_names(names, count);
+}
+
+void do_long(const char *dir)
+{
+    char **names = NULL; int count = 0; int maxlen = 0;
+    if (read_names(dir, &names, &count, &maxlen) != 0) return;
+    if (count > 0) print_long_listing(dir, names, count);
+    free_names(names, count);
 }
