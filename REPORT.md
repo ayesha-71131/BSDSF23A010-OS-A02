@@ -54,3 +54,48 @@ We implemented:
 int compare_names(const void *a, const void *b) {
     return strcasecmp(*(char **)a, *(char **)b);
 }
+
+## Feature 6 – Recursive Listing (-R) (v1.5.0)
+
+### What was added
+This feature allows listing subdirectories recursively when the `-R` option is used.  
+Each directory name is printed before its contents, and the program calls itself for every subdirectory found inside.
+
+### How it works
+1. When the `-R` flag is detected by `getopt()`, the program switches to recursive mode.  
+2. After printing the files of the current directory, it loops through all entries.  
+3. For each entry that is a directory (and not `.` or `..`), it prints the path and calls the listing function again on that path.
+
+### Key concepts
+- **Recursion:** A function calling itself for subdirectories.
+- **Path building:** Each nested directory path is built using `snprintf(path, "%s/%s", current, entry)`.
+- **Base condition:** Stops recursion when no more subdirectories exist.
+
+---
+
+## Feature 7 – Combined Options (-l, -x, -R) (v1.6.0)
+
+### What was added
+This version allows using options together, for example:
+- `ls -lR` → Long listing, recursive  
+- `ls -xR` → Horizontal column display, recursive  
+- `ls -lxR` → Combination of all supported options  
+
+The program parses all flags in a single pass and adjusts its behavior accordingly.
+
+### How it works
+1. Multiple flags are handled through `getopt()` (e.g. `while ((opt = getopt(argc, argv, "lxR")) != -1)`).
+2. The recursive function now receives parameters telling it which display mode to use.
+3. For each directory, it applies the right printing function before descending into subdirectories.
+
+### Key concepts
+- **Flag combination:** Bitwise or logical tracking of selected options.  
+- **Function reuse:** The same `do_long()`, `do_horizontal()`, or default printer is reused recursively.  
+- **Clean recursion:** Keeps directory structure clear and avoids infinite loops by skipping `.` and `..`.
+
+---
+
+### Summary of Features 6 & 7
+- Added recursive directory traversal (`-R`).
+- Supported combining `-l`, `-x`, and `-R` for flexible output.
+- All features maintain alphabetical sorting and clean, readable output.
