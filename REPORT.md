@@ -40,3 +40,17 @@ This feature introduced command-line option parsing for `-l` (long listing) and 
 - **Option parsing** lets us add flexible behavior without changing code logic.  
 - **Precedence rule:** `-l` overrides `-x`, just like in real `ls`.  
 - The horizontal display rearranges the loop order: index = row * cols + col.
+
+## Feature 5 – Alphabetical Sorting (v1.4.0)
+
+### What was added
+This feature adds alphabetical sorting (A–Z) for all display modes using the C library function `qsort()`.  
+After reading directory entries, the list of file names is sorted before printing.
+
+### How it works
+`qsort()` rearranges array elements based on the result of a comparison function.  
+We implemented:
+```c
+int compare_names(const void *a, const void *b) {
+    return strcasecmp(*(char **)a, *(char **)b);
+}
